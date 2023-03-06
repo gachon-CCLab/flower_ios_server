@@ -386,5 +386,7 @@ clientmanager = SimpleClientManager()
 server = TestServer(client_manager=clientmanager, strategy=strategy)
 
 flwr.server.start_server(
-    server_address="[::]:8080", server=server, config={"num_rounds": 1}
+    # server_address="[::]:8080", server=server, config={"num_rounds": 1}
+    server_address="[::]:8080", server=server
+
 )
