@@ -10,10 +10,9 @@ from flwr.common import (
     FitRes,
     Parameters,
     Scalar,
-    # Weights,
-    # parameters_to_ndarrays,
+    Weights,
+    parameters_to_ndarrays,
     ndarrays_to_parameters,
-    
 )
 from flwr.common.logger import log
 from flwr.server.client_manager import ClientManager, SimpleClientManager
@@ -28,16 +27,16 @@ from logging import DEBUG, INFO
 from typing import Dict, List, Optional, Tuple
 
 from flwr.common import (
-    DisconnectRes,
+    Disconnect,
     EvaluateIns,
     EvaluateRes,
     FitIns,
     FitRes,
     Parameters,
-    ReconnectIns,
+    Reconnect,
     Scalar,
 )
-from flwr.common.parameter import parameters_to_ndarrays
+from flwr.common.parameter import parameters_to_weights
 from flwr.common.logger import log
 from flwr.server.client_manager import ClientManager
 from flwr.server.client_proxy import ClientProxy
@@ -53,8 +52,8 @@ EvaluateResultsAndFailures = Tuple[
     List[Tuple[ClientProxy, EvaluateRes]],
     List[BaseException],
 ]
-ReconnectInsResultsAndFailures = Tuple[
-    List[Tuple[ClientProxy, DisconnectRes]],
+ReconnectResultsAndFailures = Tuple[
+    List[Tuple[ClientProxy, Disconnect]],
     List[BaseException],
 ]
 
@@ -100,7 +99,7 @@ class TestServer(Server):
         # Initialize parameters
         log(INFO, "Initializing global parameters")
         self.parameters = self._get_initial_parameters()
-        weights = parameters_to_ndarrays(self.parameters)
+        weights = parameters_to_weights(self.parameters)
         shapes = [weight.shape for weight in weights]
         log(INFO, "Evaluating initial parameters")
         res = self.strategy.evaluate(parameters=self.parameters)
@@ -241,13 +240,13 @@ class TestServer(Server):
         parameters_aggregated, metrics_aggregated = aggregated_result
         return parameters_aggregated, metrics_aggregated, (results, failures)
 
-    def DisconnectRes_all_clients(self) -> None:
+    def disconnect_all_clients(self) -> None:
         """Send shutdown signal to all clients."""
         all_clients = self._client_manager.all()
         clients = [all_clients[k] for k in all_clients.keys()]
-        instruction = ReconnectIns(seconds=None)
+        instruction = Reconnect(seconds=None)
         client_instructions = [(client_proxy, instruction) for client_proxy in clients]
-        _ = ReconnectIns_clients(
+        _ = reconnect_clients(
             client_instructions=client_instructions,
             max_workers=self.max_workers,
         )
@@ -271,14 +270,14 @@ class TestServer(Server):
         return parameters_res.parameters
 
 
-def ReconnectIns_clients(
-    client_instructions: List[Tuple[ClientProxy, ReconnectIns]],
+def reconnect_clients(
+    client_instructions: List[Tuple[ClientProxy, Reconnect]],
     max_workers: Optional[int],
-) -> ReconnectInsResultsAndFailures:
-    """Instruct clients to DisconnectRes and never ReconnectIns."""
+) -> ReconnectResultsAndFailures:
+    """Instruct clients to disconnect and never reconnect."""
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         submitted_fs = {
-            executor.submit(ReconnectIns_client, client_proxy, ins)
+            executor.submit(reconnect_client, client_proxy, ins)
             for client_proxy, ins in client_instructions
         }
         finished_fs, _ = concurrent.futures.wait(
@@ -287,7 +286,7 @@ def ReconnectIns_clients(
         )
 
     # Gather results
-    results: List[Tuple[ClientProxy, DisconnectRes]] = []
+    results: List[Tuple[ClientProxy, Disconnect]] = []
     failures: List[BaseException] = []
     for future in finished_fs:
         failure = future.exception()
@@ -299,12 +298,12 @@ def ReconnectIns_clients(
     return results, failures
 
 
-def ReconnectIns_client(
-    client: ClientProxy, ReconnectIns: ReconnectIns
-) -> Tuple[ClientProxy, DisconnectRes]:
-    """Instruct client to DisconnectRes and (optionally) ReconnectIns later."""
-    DisconnectRes = client.ReconnectIns(ReconnectIns)
-    return client, DisconnectRes
+def reconnect_client(
+    client: ClientProxy, reconnect: Reconnect
+) -> Tuple[ClientProxy, Disconnect]:
+    """Instruct client to disconnect and (optionally) reconnect later."""
+    disconnect = client.reconnect(reconnect)
+    return client, disconnect
 
 
 def fit_clients(
@@ -387,7 +386,5 @@ clientmanager = SimpleClientManager()
 server = TestServer(client_manager=clientmanager, strategy=strategy)
 
 flwr.server.start_server(
-    server_address="0.0.0.0:8080", 
-    server=server, 
-    config=flwr.server.ServerConfig(num_rounds=1)
+    server_address="[::]:8080", server=server, config={"num_rounds": 1}
 )
